@@ -28,6 +28,7 @@ namespace Umbraco.Community.BlockPreview.Controllers
         private readonly ContextCultureService _contextCultureService;
         private readonly IBackOfficeListPreviewService _backOfficeListPreviewService;
         private readonly IBackOfficeGridPreviewService _backOfficeGridPreviewService;
+        private readonly ICachedPreviewContextService _cachedPreviewContextService;
         private readonly ILocalizationService _localizationService;
         private readonly ISiteDomainMapper _siteDomainMapper;
 
@@ -41,6 +42,7 @@ namespace Umbraco.Community.BlockPreview.Controllers
             ContextCultureService contextCultureSwitcher,
             IBackOfficeListPreviewService backOfficeListPreviewService,
             IBackOfficeGridPreviewService backOfficeGridPreviewService,
+            ICachedPreviewContextService cachedPreviewContextService,
             ILocalizationService localizationService,
             ISiteDomainMapper siteDomainMapper)
         {
@@ -50,6 +52,7 @@ namespace Umbraco.Community.BlockPreview.Controllers
             _contextCultureService = contextCultureSwitcher;
             _backOfficeListPreviewService = backOfficeListPreviewService;
             _backOfficeGridPreviewService = backOfficeGridPreviewService;
+            _cachedPreviewContextService = cachedPreviewContextService;
             _localizationService = localizationService;
             _siteDomainMapper = siteDomainMapper;
         }
@@ -79,7 +82,7 @@ namespace Umbraco.Community.BlockPreview.Controllers
                 // If the page is new, then the ID will be zero
                 if (pageId > 0)
                 {
-                    page = GetPublishedContentForPage(pageId);
+                    page = _cachedPreviewContextService.GetPublishedContentForPage(pageId);
                 }
 
                 if (page == null)
@@ -87,8 +90,8 @@ namespace Umbraco.Community.BlockPreview.Controllers
                     return Ok("<div class=\"alert alert-warning\"><strong>Cannot create a preview:</strong> the page must be saved before a preview can be created</div>");
                 }
 
-                var currentCulture = GetCurrentCulture(page, culture);
-
+                var currentCulture =  _cachedPreviewContextService.GetCurrentCulture(page, culture);
+                
                 await SetupPublishedRequest(page, currentCulture);
 
                 if (isGrid)
@@ -106,19 +109,6 @@ namespace Umbraco.Community.BlockPreview.Controllers
             return Ok(CleanUpMarkup(markup));
         }
 
-        private string GetCurrentCulture(IPublishedContent page, string culture)
-        {
-            // if in a culture variant setup also set the correct language.
-            var currentCulture = string.IsNullOrWhiteSpace(culture)
-                ? page.GetCultureFromDomains(_umbracoContextAccessor, _siteDomainMapper)
-                : culture;
-
-            if (currentCulture == "undefined")
-                currentCulture = _localizationService.GetDefaultLanguageIsoCode();
-
-            return currentCulture;
-        }
-
         private async Task SetupPublishedRequest(IPublishedContent page, string culture)
         {
             // set the published request for the page we are editing in the back office
@@ -126,11 +116,7 @@ namespace Umbraco.Community.BlockPreview.Controllers
             {
                 return;
             }
-
-            // set the published request
-            var requestBuilder = await _publishedRouter.CreateRequestAsync(new Uri(Request.GetDisplayUrl()));
-            requestBuilder.SetPublishedContent(page);
-            context.PublishedRequest = requestBuilder.Build();
+            context.PublishedRequest = await _cachedPreviewContextService.CreatePublishedRequest(page,Request);
             context.ForcedPreview(true);
 
             if (culture == null)
@@ -139,15 +125,7 @@ namespace Umbraco.Community.BlockPreview.Controllers
             _contextCultureService.SetCulture(culture);
         }
 
-        private IPublishedContent GetPublishedContentForPage(int pageId)
-        {
-            if (!_umbracoContextAccessor.TryGetUmbracoContext(out IUmbracoContext context))
-                return null;
-
-            // Get page from published cache.
-            // If unpublished, then get it from preview
-            return context.Content?.GetById(pageId) ?? context.Content?.GetById(true, pageId);
-        }
+       
 
         private static string CleanUpMarkup(string markup)
         {

@@ -21,7 +21,7 @@ namespace Umbraco.Community.BlockPreview.Extensions
                             .AppendHtml(AREA_TEMPLATE)
                     );
             }
-
+           
             return await html.GetBlockGridItemAreasHtmlAsync(item, template);
         }
 
